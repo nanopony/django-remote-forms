@@ -5,8 +5,12 @@ from django.utils.datastructures import SortedDict
 
 from django_remote_forms import logger, widgets
 
+TYPE_GENERIC = 0
+TYPE_INTEGER = 1
+TYPE_BOOLEAN = 2
 
 class RemoteField(object):
+    type = TYPE_GENERIC
     """
     A base object for being able to return a Django Form Field as a Python
     dictionary.
@@ -22,6 +26,14 @@ class RemoteField(object):
         self.field_name = field_name
         self.field = field
         self.form_initial_data = form_initial_data
+
+    def as_ko_dict(self):
+        field_dict = dict()
+        field_dict['type'] = self.type
+        field_dict['value'] = self.form_initial_data or self.field.initial
+        field_dict['required'] = self.field.required
+        # field_dict['errors'] = self.field.errors
+        return field_dict
 
     def as_dict(self):
         field_dict = SortedDict()
@@ -51,6 +63,16 @@ class RemoteField(object):
 
 
 class RemoteCharField(RemoteField):
+    def as_ko_dict(self):
+        field_dict = super(RemoteCharField, self).as_ko_dict()
+
+        field_dict.update({
+            'max_length': self.field.max_length,
+            'min_length': self.field.min_length
+        })
+
+        return field_dict
+
     def as_dict(self):
         field_dict = super(RemoteCharField, self).as_dict()
 
@@ -63,6 +85,16 @@ class RemoteCharField(RemoteField):
 
 
 class RemoteIntegerField(RemoteField):
+    type = TYPE_INTEGER
+    def as_ko_dict(self):
+        field_dict = super(RemoteIntegerField, self).as_ko_dict()
+
+        field_dict.update({
+            'max_value': self.field.max_value,
+            'min_value': self.field.min_value
+        })
+
+        return field_dict
     def as_dict(self):
         field_dict = super(RemoteIntegerField, self).as_dict()
 
@@ -143,6 +175,8 @@ class RemoteEmailField(RemoteCharField):
 
 
 class RemoteFileField(RemoteField):
+    def as_ko_dict(self):
+        return None
     def as_dict(self):
         field_dict = super(RemoteFileField, self).as_dict()
 
@@ -152,6 +186,8 @@ class RemoteFileField(RemoteField):
 
 
 class RemoteImageField(RemoteFileField):
+    def as_ko_dict(self):
+        return None
     def as_dict(self):
         return super(RemoteImageField, self).as_dict()
 
@@ -162,6 +198,7 @@ class RemoteURLField(RemoteCharField):
 
 
 class RemoteBooleanField(RemoteField):
+    type = TYPE_BOOLEAN
     def as_dict(self):
         return super(RemoteBooleanField, self).as_dict()
 

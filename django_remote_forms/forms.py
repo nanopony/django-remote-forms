@@ -1,3 +1,4 @@
+import json
 from django.utils.datastructures import SortedDict
 
 from django_remote_forms import fields, logger
@@ -19,23 +20,28 @@ class RemoteForm(object):
 
         # Make sure all passed field lists are valid
         if self.excluded_fields and not (self.all_fields >= self.excluded_fields):
-            logger.warning('Excluded fields %s are not present in form fields' % (self.excluded_fields - self.all_fields))
+            logger.warning(
+                'Excluded fields %s are not present in form fields' % (self.excluded_fields - self.all_fields))
             self.excluded_fields = set()
 
         if self.included_fields and not (self.all_fields >= self.included_fields):
-            logger.warning('Included fields %s are not present in form fields' % (self.included_fields - self.all_fields))
+            logger.warning(
+                'Included fields %s are not present in form fields' % (self.included_fields - self.all_fields))
             self.included_fields = set()
 
         if self.readonly_fields and not (self.all_fields >= self.readonly_fields):
-            logger.warning('Readonly fields %s are not present in form fields' % (self.readonly_fields - self.all_fields))
+            logger.warning(
+                'Readonly fields %s are not present in form fields' % (self.readonly_fields - self.all_fields))
             self.readonly_fields = set()
 
         if self.ordered_fields and not (self.all_fields >= set(self.ordered_fields)):
-            logger.warning('Readonly fields %s are not present in form fields' % (set(self.ordered_fields) - self.all_fields))
+            logger.warning(
+                'Readonly fields %s are not present in form fields' % (set(self.ordered_fields) - self.all_fields))
             self.ordered_fields = []
 
         if self.included_fields | self.excluded_fields:
-            logger.warning('Included and excluded fields have following fields %s in common' % (set(self.ordered_fields) - self.all_fields))
+            logger.warning('Included and excluded fields have following fields %s in common' % (
+            set(self.ordered_fields) - self.all_fields))
             self.excluded_fields = set()
             self.included_fields = set()
 
@@ -43,8 +49,8 @@ class RemoteForm(object):
         self.excluded_fields |= (self.included_fields - self.all_fields)
 
         if not self.ordered_fields:
-            if self.form.fields.keyOrder:
-                self.ordered_fields = self.form.fields.keyOrder
+            if 'keyOrder' in self.form.fields:
+                self.ordered_fields = self.form.fields.keyOrder  # what?
             else:
                 self.ordered_fields = self.form.fields.keys()
 
@@ -71,6 +77,9 @@ class RemoteForm(object):
         if not (set(self.fields) >= fieldset_fields):
             logger.warning('Following fieldset fields are excluded %s' % (fieldset_fields - set(self.fields)))
             self.fieldsets = {}
+
+    def to_json(self):
+        return json.dumps(self.as_ko_dict())
 
     def as_dict(self):
         """
@@ -151,5 +160,55 @@ class RemoteForm(object):
             form_dict['data'] = self.form.data
         else:
             form_dict['data'] = initial_data
+
+        return resolve_promise(form_dict)
+
+    def as_ko_dict(self):
+        """
+        Returns min dictionary:
+        form = {
+            'name': {
+                'value': 'data',
+                'validators': [],
+                'required': False,
+                'readonly': ?
+            }
+        }
+        """
+        form_dict = dict()
+
+        for name, field in [(x, self.form.fields[x]) for x in self.fields]:
+            # Retrieve the initial data from the form itself if it exists so
+            # that we properly handle which initial data should be returned in
+            # the dictionary.
+
+            # Please refer to the Django Form API documentation for details on
+            # why this is necessary:
+            # https://docs.djangoproject.com/en/dev/ref/forms/api/#dynamic-initial-values
+            form_initial_field_data = self.form.initial.get(name)
+
+            # Instantiate the Remote Forms equivalent of the field if possible
+            # in order to retrieve the field contents as a dictionary.
+            remote_field_class_name = 'Remote%s' % field.__class__.__name__
+            try:
+                remote_field_class = getattr(fields, remote_field_class_name)
+                remote_field = remote_field_class(field, form_initial_field_data, field_name=name)
+            except Exception as e:
+                logger.warning('Error serializing field %s: %s', remote_field_class_name, str(e))
+                field_dict = {}
+            else:
+                field_dict = remote_field.as_ko_dict()
+
+            if (field_dict is None):
+                continue
+
+            if name in self.readonly_fields:
+                field_dict['readonly'] = True
+
+            form_dict[name] = field_dict
+
+            # Load the initial data, which is a conglomerate of form initial and field initial
+            if 'value' not in form_dict[name]:
+                form_dict[name]['value'] = None
 
         return resolve_promise(form_dict)
